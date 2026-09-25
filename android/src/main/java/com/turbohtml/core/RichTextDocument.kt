@@ -12,10 +12,13 @@ import java.util.regex.Pattern
 
 /** Layout-affecting style, already in pixels. Color is not here: it's applied at draw time. */
 internal data class RichTextStyle(
+    /** Registered family / asset font name; empty = the system font. */
     val fontFamily: String,
     val fontSizePx: Float,
     val lineHeightPx: Float,
     val detectPhoneNumbers: Boolean,
+    /** Weight for h1/h2 (h3/h4 use min(this, 600)); 100–900 like CSS. */
+    val headingFontWeight: Int,
     /** 4dp block gap, in pixels. */
     val blockGapPx: Float,
 )
@@ -24,7 +27,18 @@ internal enum class RichTextFontWeight(val value: Int) {
   REGULAR(400),
   MEDIUM(500),
   SEMIBOLD(600),
-  BOLD(700),
+  BOLD(700);
+
+  companion object {
+    /** CSS-style numeric weight (100–900) → nearest supported weight. */
+    fun fromNumeric(weight: Int): RichTextFontWeight =
+        when {
+          weight >= 650 -> BOLD
+          weight >= 550 -> SEMIBOLD
+          weight >= 450 -> MEDIUM
+          else -> REGULAR
+        }
+  }
 }
 
 /** One block: a `<p>`/`<h*>`/`<li>` row, or bare text at block level. */
@@ -38,15 +52,18 @@ internal class RichTextParagraph(
 
 internal class RichTextDocument(val paragraphs: List<RichTextParagraph>, val plainText: String)
 
-/** Marks a tappable range; also paints it like a phone link (brand color, underline). */
+/**
+ * Marks a tappable range. Its color comes from the paint's `linkColor`, which the view sets
+ * at draw time — so `linkColor` can change without re-laying out.
+ */
 internal class RichTextLinkSpan(val url: String, val isPhone: Boolean) : CharacterStyle() {
   override fun updateDrawState(tp: TextPaint) {
-    tp.color = RichTextColors.LINK
+    tp.color = tp.linkColor
     tp.isUnderlineText = true
   }
 }
 
-/** Typeface + size for a run (bundled Figtree / KantumruyPro via ReactFontManager). */
+/** Typeface + size for a run (resolved via ReactFontManager, like RN `<Text>`). */
 internal class RichTextTypefaceSpan(private val typeface: Typeface, private val sizePx: Float) : MetricAffectingSpan() {
   override fun updateMeasureState(paint: TextPaint) = apply(paint)
 
@@ -56,14 +73,6 @@ internal class RichTextTypefaceSpan(private val typeface: Typeface, private val 
     paint.typeface = typeface
     paint.textSize = sizePx
   }
-}
-
-internal object RichTextColors {
-  /** Default link color (#04ab52) — see the package README for how to override it. */
-  const val LINK = 0xFF04AB52.toInt()
-  /** Default body text color per theme — see the package README for how to override it. */
-  const val BODY_LIGHT = 0xFF7D7D7D.toInt()
-  const val BODY_DARK = 0xFF898989.toInt()
 }
 
 /**
@@ -92,8 +101,15 @@ private constructor(
       val builder = RichTextDocumentBuilder(style, typeface)
       HtmlScanner.scan(html, builder)
       builder.closeAll()
-      return RichTextDocument(builder.paragraphs, builder.plainText.toString())
+      // Editors pad API content with empty blocks (`<p><br></p>`, `<p>&nbsp;</p>`): drop them at
+      // the start and end, where they only render as blank space. Middle blocks are the
+      // author's spacing and stay; list items keep their marker, so they're never blank.
+      val paragraphs = builder.paragraphs.dropLastWhile(::isBlank).dropWhile(::isBlank)
+      return RichTextDocument(paragraphs, builder.plainText.toString().trim { it.isWhitespace() || it == '\u00A0' })
     }
+
+    private fun isBlank(p: RichTextParagraph): Boolean =
+        p.prefix == null && p.text.all { it.isWhitespace() || it == '\u00A0' }
 
     private const val LINE_BREAK = '\n'
     private val allowedLinkSchemes = setOf("http", "https", "mailto", "tel")
@@ -211,6 +227,12 @@ private constructor(
     val text = current ?: return
     current = null
     if (text.isEmpty()) return
+    // Browser `<br>` semantics: a trailing break ends the last line but doesn't open another,
+    // whereas StaticLayout adds an empty line after a trailing "\n". `<p><br></p>` stays one
+    // empty line.
+    if (text.last() == '\n') {
+      if (text.length == 1) text.replace(0, 1, " ") else text.delete(text.length - 1, text.length)
+    }
 
     paragraphs.add(RichTextParagraph(text, currentPrefix, currentSpacing))
     pendingGap = 0f
@@ -247,8 +269,8 @@ private constructor(
 
   private fun headingWeight(tag: String): RichTextFontWeight =
       when (tag) {
-        "h1", "h2" -> if (style.fontFamily == "KantumruyPro") RichTextFontWeight.SEMIBOLD else RichTextFontWeight.BOLD
-        "h3", "h4" -> RichTextFontWeight.SEMIBOLD
+        "h1", "h2" -> RichTextFontWeight.fromNumeric(style.headingFontWeight)
+        "h3", "h4" -> RichTextFontWeight.fromNumeric(minOf(style.headingFontWeight, 600))
         else -> RichTextFontWeight.REGULAR
       }
 
@@ -291,7 +313,7 @@ private constructor(
     for (range in RichTextPhoneDetector.matches(text)) {
       if (range.first > cursor) append(text.substring(cursor, range.first), inline)
       val number = text.substring(range.first, range.last + 1)
-      append(number, inline.copy(link = RichTextLinkSpan("tel:" + number.replace(" ", ""), isPhone = true)))
+      append(number, inline.copy(link = RichTextLinkSpan(RichTextPhoneDetector.telUrl(number), isPhone = true)))
       cursor = range.last + 1
     }
     if (cursor < text.length) append(text.substring(cursor), inline)
@@ -323,13 +345,20 @@ private constructor(
  * (2024-01-15, 15-01-2024) rejected (kept in sync with the iOS detector).
  */
 internal object RichTextPhoneDetector {
-  private val candidate = Pattern.compile("\\+?\\d[\\d \\-]{6,}\\d")
-  private val dateShape = Regex("^(\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}-\\d{1,2}-\\d{4})$")
+  // ASCII and Khmer (០–៩) digits: Khmer content often writes phone numbers in Khmer numerals.
+  private const val DIGIT = "[0-9\\u17E0-\\u17E9]"
+  // Separators inside a number: space, dash, and the invisible / non-breaking spaces editors
+  // and Khmer keyboards insert between groups (e.g. "098\u200B 858\u200B 713").
+  private const val SEPARATOR = "[ \\-\\u00A0\\u2007\\u2009\\u202F\\u200B\\u200C\\u200D\\u2060\\uFEFF]"
+  private val candidate = Pattern.compile("\\+?$DIGIT(?:$DIGIT|$SEPARATOR){6,}$DIGIT")
+  private val dateShape = Regex("^($DIGIT{4}-$DIGIT{1,2}-$DIGIT{1,2}|$DIGIT{1,2}-$DIGIT{1,2}-$DIGIT{4})$")
+
+  private fun isDigit(c: Char) = c in '0'..'9' || c in '\u17E0'..'\u17E9'
 
   fun matches(text: String): List<IntRange> {
     var digits = 0
     for (c in text) {
-      if (c in '0'..'9' && ++digits >= 8) break
+      if (isDigit(c) && ++digits >= 8) break
     }
     if (digits < 8) return emptyList()
 
@@ -337,9 +366,22 @@ internal object RichTextPhoneDetector {
     val m = candidate.matcher(text)
     while (m.find()) {
       val value = m.group()
-      val count = value.count { it in '0'..'9' }
+      val count = value.count(::isDigit)
       if (count in 8..15 && !dateShape.matches(value)) result.add(m.start() until m.end())
     }
     return result
+  }
+
+  /** Digits only (Khmer digits mapped to ASCII), keeping a leading "+"; separators dropped. */
+  fun telUrl(number: String): String {
+    val out = StringBuilder("tel:")
+    for (c in number) {
+      when {
+        c in '0'..'9' -> out.append(c)
+        c in '\u17E0'..'\u17E9' -> out.append('0' + (c - '\u17E0'))
+        c == '+' && out.length == 4 -> out.append('+')
+      }
+    }
+    return out.toString()
   }
 }

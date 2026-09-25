@@ -61,7 +61,7 @@ internal class RichTextLayout(
     }
   }
 
-  fun draw(canvas: Canvas, bodyColor: Int) {
+  fun draw(canvas: Canvas, bodyColor: Int, linkColor: Int) {
     for (p in paragraphs) {
       p.marker?.let {
         it.paint.color = bodyColor
@@ -70,7 +70,8 @@ internal class RichTextLayout(
         it.draw(canvas)
         canvas.restore()
       }
-      p.layout.paint.color = bodyColor // spans without their own color use the paint's
+      p.layout.paint.color = bodyColor // plain runs use the paint's color…
+      p.layout.paint.linkColor = linkColor // …and RichTextLinkSpan reads linkColor
       canvas.save()
       canvas.translate(p.x, p.y)
       p.layout.draw(canvas)

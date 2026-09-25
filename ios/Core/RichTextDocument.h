@@ -23,36 +23,38 @@ namespace turbohtml {
 
 // Layout-affecting style. Color is not here: body text takes the fill color at draw time.
 struct RichTextStyle {
-  NSString *fontFamily = @"Figtree";
+  // Family name ("Inter", "Kantumruy Pro") or PostScript name ("Figtree-Regular"); empty =
+  // the system font. Resolved like RN `<Text>` (see RichTextFonts).
+  NSString *fontFamily = @"";
   CGFloat fontSize = 14;
   CGFloat lineHeight = 20;
   bool detectPhoneNumbers = true;
+  // Weight for h1/h2 (h3/h4 use min(this, 600)); 100–900 like CSS.
+  int headingFontWeight = 700;
 
   bool operator==(const RichTextStyle &other) const {
     return fontSize == other.fontSize && lineHeight == other.lineHeight &&
-        detectPhoneNumbers == other.detectPhoneNumbers && [fontFamily isEqualToString:other.fontFamily];
+        detectPhoneNumbers == other.detectPhoneNumbers && headingFontWeight == other.headingFontWeight &&
+        [fontFamily isEqualToString:other.fontFamily];
   }
   bool operator!=(const RichTextStyle &other) const { return !(*this == other); }
 
   // Applies Dynamic Type the way RN `<Text>` does (`allowFontScaling` defaults to true):
   // both font size and line height scale by the surface's `fontSizeMultiplier`.
+  // `lineHeight <= 0` means the font's natural line height (≈ 1.2 × size, like RN's default).
   static RichTextStyle scaled(NSString *fontFamily, double fontSize, double lineHeight, bool detectPhoneNumbers,
-                              double fontScale);
+                              int headingFontWeight, double fontScale);
 };
 
 namespace RichTextAttribute {
 extern NSString *const Link;
 extern NSString *const Underline;
 extern NSString *const Strikethrough;
-// kCTFontAttributeName, kCTForegroundColorFromContextAttributeName, kCTForegroundColorAttributeName
-// are used directly (they are already NSAttributedString.Key-compatible CFStringRefs).
+// kCTFontAttributeName and kCTForegroundColorFromContextAttributeName are used directly.
+// No color is ever stored in the text: every run takes the context's fill color, which the
+// canvas sets per run at draw time (body `color` or `linkColor`). So colors — including
+// dynamic light/dark ones — can change without re-parsing or re-laying out.
 } // namespace RichTextAttribute
-
-namespace RichTextColors {
-// `--color-brand` (#04ab52) — the host app's default; see the package README for how to
-// override it (configurable colors are a TODO).
-CGColorRef link();
-} // namespace RichTextColors
 
 // One block of text: a `<p>`/`<h*>`/`<li>` row, or bare text at block level.
 struct RichTextParagraph {
@@ -98,6 +100,10 @@ class RichTextPhoneDetector {
  public:
   // Returns UTF-16 (NSString) ranges of phone-shaped matches within `text`.
   static std::vector<NSRange> matches(NSString *text);
+
+  // `tel:` URL for a matched number: digits only (Khmer digits mapped to ASCII), keeping a
+  // leading "+"; separators — including invisible ones — are dropped.
+  static NSString *telURL(NSString *number);
 };
 
 } // namespace turbohtml

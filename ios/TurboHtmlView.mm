@@ -1,5 +1,6 @@
 #import "TurboHtmlView.h"
 
+#import <React/RCTConversions.h>
 #import <React/RCTUtils.h>
 #import <react/renderer/components/TurboHtmlViewSpec/EventEmitters.h>
 #import <react/renderer/components/TurboHtmlViewSpec/Props.h>
@@ -39,12 +40,16 @@ using namespace facebook::react;
                                              length:newProps.html.size()
                                            encoding:NSUTF8StringEncoding]
                 ?: @""
-         fontFamily:[NSString stringWithUTF8String:newProps.fontFamily.c_str()] ?: @"Figtree"
+         fontFamily:[NSString stringWithUTF8String:newProps.fontFamily.c_str()] ?: @""
            fontSize:newProps.fontSize
          lineHeight:newProps.lineHeight
       numberOfLines:newProps.numberOfLines
  detectPhoneNumbers:newProps.detectPhoneNumbers
+  headingFontWeight:newProps.headingFontWeight
           fontScale:RCTFontSizeMultiplier()];
+
+  _canvas.textColor = RCTUIColorFromSharedColor(newProps.color);
+  _canvas.linkColor = RCTUIColorFromSharedColor(newProps.linkColor);
 
   [super updateProps:props oldProps:oldProps];
 }

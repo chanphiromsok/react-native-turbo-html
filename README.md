@@ -38,8 +38,11 @@ site from a JS HTML renderer is meant to be visually neutral:
 - `ul`/`ol`: only direct `li` children become rows, each with a "•"/"N." marker in its own
   column and a hanging indent for wrapped lines.
 - Bare text at block level becomes its own unstyled block, without phone-number detection.
-- `<br>` and raw newlines in the source are hard line breaks. A trailing break adds one more
-  empty line, matching RN `<Text>`.
+- `<br>` and raw newlines in the source are hard line breaks, with browser semantics: a
+  trailing `<br>` doesn't open an extra line (`<p>a<br></p>` is one line, `<p><br></p>` one
+  empty line).
+- Empty blocks (only whitespace, `<br>` or `&nbsp;`) at the very start or end are dropped —
+  editors pad API content with them. Empty blocks in the middle are kept as spacing.
 - `head`/`script`/`style`/`meta`/`link` are dropped along with their contents.
 - **Deliberate additions:** `a[href]` (http/https/mailto/tel schemes only, and `www.` gets
   `https://` prepended) becomes a tappable link; `s`/`del` render as strikethrough. Phone
@@ -66,7 +69,7 @@ import { TurboHtmlView } from "react-native-turbo-html";
 
 <TurboHtmlView
   html="<p>Hello <b>world</b>. Call <a href=\"tel:+855123456789\">us</a>.</p>"
-  fontFamily="Figtree"
+  fontFamily="Inter" // any font your app ships; omit for the system font
   fontSize={14}
   lineHeight={20}
   numberOfLines={0}
@@ -80,9 +83,10 @@ import { TurboHtmlView } from "react-native-turbo-html";
 | Prop | Type | Description |
 | --- | --- | --- |
 | `html` | `string` | The HTML string to render. |
-| `fontFamily` | `string` | Font family name (must be registered/bundled by the app, e.g. via `expo-font`). |
-| `fontSize` | `number` | Base font size (points/dp). Headings keep this size and only change weight. |
-| `lineHeight` | `number` | Line box height; glyphs are vertically centered in it, the same way RN `<Text lineHeight>` distributes extra leading. |
+| `fontFamily` | `string` (default: system font) | Any font your app ships, resolved like RN `<Text fontFamily>`: a family name (`"Inter"`, `"Kantumruy Pro"`) or a PostScript name (`"Figtree-Regular"`). Bold/semibold/italic pick the closest face of that family; missing italics are synthesized. On Android, anything `ReactFontManager` knows (expo-font families, `assets/fonts`, system families). |
+| `fontSize` | `number` (default `14`) | Base font size (points/dp). Headings keep this size and only change weight. |
+| `lineHeight` | `number` (default `0` = natural, ≈ 1.2 × `fontSize`) | Line box height; glyphs are vertically centered in it, the same way RN `<Text lineHeight>` distributes extra leading. |
+| `headingFontWeight` | `number` (default `700`) | Weight for `<h1>`/`<h2>`; `<h3>`/`<h4>` use `min(headingFontWeight, 600)`. Useful when a script's bold face is too heavy (e.g. `600` for Khmer). |
 | `numberOfLines` | `number` (default `0`) | `0` means unlimited. A positive value truncates with a trailing "…" and reports `truncated`-style clipping the same way on both platforms. |
 | `detectPhoneNumbers` | `boolean` (default `true`) | Turns matched phone-number-shaped runs into `tel:` links. |
 | `onLinkPress` | `(event) => void` | Fires with `{ url, type }`, where `type` is `"link"` for `<a href>` or `"phone"` for a detected number. |
@@ -90,14 +94,17 @@ import { TurboHtmlView } from "react-native-turbo-html";
 Both `fontSize` and `lineHeight` are scaled by the system's Dynamic Type / font-scale
 multiplier (`allowFontScaling` semantics), matching RN `<Text>`.
 
-### Colors (TODO: configurable)
+### Colors
 
-Body text and link colors are currently fixed defaults (light/dark body `#7d7d7d`/`#898989`,
-link `#04ab52`), inherited from the app this package was extracted from (turbo). **Making
-these configurable via props is a TODO** — today, forking the color constants is the only way
-to change them: iOS `ios/Core/RichTextDocument.mm` (`turbohtml::RichTextColors::link()`) and
-`ios/TurboHtmlCanvas.mm` (`+bodyColor`); Android
-`android/src/main/java/com/turbohtml/core/RichTextDocument.kt` (`RichTextColors`).
+| Prop | Type | Default |
+| --- | --- | --- |
+| `color` | `ColorValue` | iOS `UIColor.labelColor`, Android theme `textColorPrimary` |
+| `linkColor` | `ColorValue` | iOS `UIColor.linkColor`, Android theme `textColorLink` |
+
+Colors are applied at draw time and are never part of the layout cache, so changing them
+(or switching light/dark) only redraws. `PlatformColor` and `DynamicColorIOS` work — e.g.
+`color={DynamicColorIOS({ light: "#7d7d7d", dark: "#898989" })}` follows the system theme
+on iOS without a re-render.
 
 ## Architecture
 

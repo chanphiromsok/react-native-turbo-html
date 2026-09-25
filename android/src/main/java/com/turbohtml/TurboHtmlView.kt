@@ -10,7 +10,6 @@ import com.facebook.react.bridge.ReactContext
 import com.facebook.react.uimanager.PixelUtil
 import com.facebook.react.uimanager.UIManagerHelper
 import com.facebook.react.uimanager.events.NativeGestureUtil
-import com.turbohtml.core.RichTextColors
 import com.turbohtml.core.RichTextEngine
 import com.turbohtml.core.RichTextLayout
 import com.turbohtml.core.RichTextLinkSpan
@@ -23,11 +22,17 @@ import com.turbohtml.core.RichTextLinkSpan
 @SuppressLint("ViewConstructor")
 class TurboHtmlView(context: Context) : View(context) {
   private var html = ""
-  private var fontFamily = "Figtree"
+  private var fontFamily = ""
   private var fontSize = 14f
-  private var lineHeight = 20f
+  private var lineHeight = 0f
   private var numberOfLines = 0
   private var detectPhoneNumbers = true
+  private var headingFontWeight = 700
+
+  /** Body / link colors; null = the theme's `textColorPrimary` / `textColorLink`. Draw-only. */
+  private var textColor: Int? = null
+  private var linkColor: Int? = null
+  private var themeColors: Pair<Int, Int>? = null
   private var propsDirty = true
 
   private var layout: RichTextLayout = RichTextLayout.EMPTY
@@ -35,7 +40,7 @@ class TurboHtmlView(context: Context) : View(context) {
 
   fun setHtml(value: String?) = update { html = value.orEmpty() }
 
-  fun setFontFamily(value: String?) = update { fontFamily = value?.takeIf { it.isNotEmpty() } ?: "Figtree" }
+  fun setFontFamily(value: String?) = update { fontFamily = value.orEmpty() }
 
   fun setFontSize(value: Float) = update { fontSize = value }
 
@@ -44,6 +49,21 @@ class TurboHtmlView(context: Context) : View(context) {
   fun setNumberOfLines(value: Int) = update { numberOfLines = value }
 
   fun setDetectPhoneNumbers(value: Boolean) = update { detectPhoneNumbers = value }
+
+  fun setHeadingFontWeight(value: Int) = update { headingFontWeight = value }
+
+  // Colors never affect layout: they only redraw.
+  fun setTextColor(value: Int?) {
+    if (value == textColor) return
+    textColor = value
+    invalidate()
+  }
+
+  fun setLinkColor(value: Int?) {
+    if (value == linkColor) return
+    linkColor = value
+    invalidate()
+  }
 
   private inline fun update(block: () -> Unit) {
     block()
@@ -57,8 +77,23 @@ class TurboHtmlView(context: Context) : View(context) {
     relayout()
   }
 
+  /**
+   * Called before the view goes back into the recycling pool. A recycled view only receives
+   * the props present in its next props map (props left at their JS default are not sent),
+   * so every prop must return to its default here or it would leak from the previous row.
+   */
   fun reset() {
     html = ""
+    fontFamily = ""
+    fontSize = 14f
+    lineHeight = 0f
+    numberOfLines = 0
+    detectPhoneNumbers = true
+    headingFontWeight = 700
+    textColor = null
+    linkColor = null
+    propsDirty = true
+    pressedLink = null
     layout = RichTextLayout.EMPTY
     contentDescription = null
     invalidate()
@@ -73,7 +108,7 @@ class TurboHtmlView(context: Context) : View(context) {
     val next =
         RichTextEngine.layout(
             html,
-            TurboHtmlViewManager.styleFor(fontFamily, fontSize, lineHeight, detectPhoneNumbers),
+            TurboHtmlViewManager.styleFor(fontFamily, fontSize, lineHeight, detectPhoneNumbers, headingFontWeight),
             width,
             numberOfLines,
             TurboHtmlViewManager.markerGapPx(),
@@ -87,17 +122,27 @@ class TurboHtmlView(context: Context) : View(context) {
 
   override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
-    layout.draw(canvas, bodyColor())
+    val defaults = themeColors ?: resolveThemeColors().also { themeColors = it }
+    layout.draw(canvas, textColor ?: defaults.first, linkColor ?: defaults.second)
   }
 
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
-    invalidate() // color only lives in onDraw, so a theme switch never re-lays out
+    themeColors = null // re-resolve theme defaults (light/dark); colors only live in onDraw
+    invalidate()
   }
 
-  private fun bodyColor(): Int {
-    val night = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-    return if (night == Configuration.UI_MODE_NIGHT_YES) RichTextColors.BODY_DARK else RichTextColors.BODY_LIGHT
+  private fun resolveThemeColors(): Pair<Int, Int> {
+    val night =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    val attrs = context.obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary, android.R.attr.textColorLink))
+    try {
+      val body = attrs.getColorStateList(0)?.defaultColor ?: if (night) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
+      val link = attrs.getColorStateList(1)?.defaultColor ?: if (night) 0xFF8AB4F8.toInt() else 0xFF1A73E8.toInt()
+      return body to link
+    } finally {
+      attrs.recycle()
+    }
   }
 
   // MARK: Links

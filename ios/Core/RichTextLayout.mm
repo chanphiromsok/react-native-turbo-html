@@ -74,7 +74,9 @@ struct Builder {
   int lineCount = 0;
   bool truncated = false;
 
-  void collectRunGeometry(CTLineRef line, CGFloat x, CGFloat top, CGFloat baseline, CGFloat lineHeight) {
+  // Returns whether the line contains a link run.
+  bool collectRunGeometry(CTLineRef line, CGFloat x, CGFloat top, CGFloat baseline, CGFloat lineHeight) {
+    bool hasLinks = false;
     // Read the CFArray directly: bridging to an NSArray copies and type-checks every element.
     CFArrayRef runs = CTLineGetGlyphRuns(line);
     CFIndex runCount = CFArrayGetCount(runs);
@@ -96,6 +98,7 @@ struct Builder {
       if (runWidth <= 0) continue;
 
       if (link != nil) {
+        hasLinks = true;
         links.push_back(RichTextLinkRect{CGRectMake(minX, top, runWidth, lineHeight), link});
       }
 
@@ -111,6 +114,7 @@ struct Builder {
         decorations.push_back(RichTextDecoration{CGRectMake(minX, lineY, runWidth, thickness), link != nil});
       }
     }
+    return hasLinks;
   }
 
   void place(CTLineRef line, CTLineRef _Nullable marker, CGFloat x, CGFloat lineHeight, bool collectGeometry) {
@@ -120,15 +124,12 @@ struct Builder {
     CGFloat top = y;
     CGFloat baseline = top + (lineHeight - (ascent + descent)) / 2 + ascent;
 
-    lines.push_back(RichTextPlacedLine{line, CGPointMake(x, baseline)});
+    const bool hasLinks = collectGeometry && collectRunGeometry(line, x, top, baseline, lineHeight);
+    lines.push_back(RichTextPlacedLine{line, CGPointMake(x, baseline), hasLinks});
     if (marker != nil) {
-      lines.push_back(RichTextPlacedLine{marker, CGPointMake(0, baseline)});
+      lines.push_back(RichTextPlacedLine{marker, CGPointMake(0, baseline), false});
     }
     usedWidth = std::max(usedWidth, x + lineWidth - trailingWhitespace);
-
-    if (collectGeometry) {
-      collectRunGeometry(line, x, top, baseline, lineHeight);
-    }
 
     y += lineHeight;
     lineCount += 1;
@@ -158,7 +159,6 @@ CTLineRef truncatedLine(NSAttributedString *text, NSString *string, CTTypesetter
   [ellipsisAttributes removeObjectForKey:RichTextAttribute::Link];
   [ellipsisAttributes removeObjectForKey:RichTextAttribute::Underline];
   [ellipsisAttributes removeObjectForKey:RichTextAttribute::Strikethrough];
-  [ellipsisAttributes removeObjectForKey:(id)kCTForegroundColorAttributeName];
   ellipsisAttributes[(id)kCTForegroundColorFromContextAttributeName] = @YES;
   NSAttributedString *ellipsis = [[NSAttributedString alloc] initWithString:@"…" attributes:ellipsisAttributes];
   CTLineRef token = CTLineCreateWithAttributedString((CFAttributedStringRef)ellipsis);
@@ -210,7 +210,6 @@ std::shared_ptr<RichTextLayout> RichTextLayouter::layout(const RichTextDocument 
     NSInteger length = (NSInteger)text.length;
     NSString *string = text.string;
     CFScoped<CTTypesetterRef> typesetter(CTTypesetterCreateWithAttributedString((CFAttributedStringRef)text));
-    bool endsWithBreak = length > 0 && [string characterAtIndex:(NSUInteger)(length - 1)] == kLineSeparator;
     bool isLastParagraph = paragraphIndex == paragraphs.size() - 1;
 
     NSInteger start = 0;
@@ -220,7 +219,7 @@ std::shared_ptr<RichTextLayout> RichTextLayouter::layout(const RichTextDocument 
       CFIndex count = CTTypesetterSuggestLineBreak(typesetter, start, contentWidth);
       if (count <= 0) count = length - start;
 
-      bool hasMore = start + count < length || endsWithBreak || !isLastParagraph;
+      bool hasMore = start + count < length || !isLastParagraph;
       CTLineRef line;
       if (builder.lineCount == limit - 1 && hasMore) {
         line = truncatedLine(text, string, typesetter, start, count, contentWidth);
@@ -235,15 +234,8 @@ std::shared_ptr<RichTextLayout> RichTextLayouter::layout(const RichTextDocument 
       if (builder.truncated) { brokeOuter = true; break; }
     }
 
-    // A trailing hard break opens one more (empty) line, as TextKit/RN `<Text>` do.
-    if (!brokeOuter && endsWithBreak) {
-      if (builder.lineCount >= limit) {
-        builder.truncated = true;
-        break;
-      }
-      builder.y += paragraph.lineHeight;
-      builder.lineCount += 1;
-    }
+    // Browser `<br>` semantics: a trailing break ends the last line but doesn't open another
+    // (`<p>a<br></p>` is one line, `<p><br></p>` one empty line) — no extra line here.
 
     if (brokeOuter) break;
   }

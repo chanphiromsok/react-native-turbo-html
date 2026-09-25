@@ -33,7 +33,7 @@ Size TurboHtmlMeasurementsManager::measure(
   // Only the layout-affecting props cross JNI.
   folly::dynamic serializedProps = folly::dynamic::object("html", props.html)("fontFamily", props.fontFamily)(
       "fontSize", props.fontSize)("lineHeight", props.lineHeight)("numberOfLines", props.numberOfLines)(
-      "detectPhoneNumbers", props.detectPhoneNumbers);
+      "detectPhoneNumbers", props.detectPhoneNumbers)("headingFontWeight", props.headingFontWeight);
   local_ref<ReadableNativeMap::javaobject> propsRNM = ReadableNativeMap::newObjectCxxArgs(std::move(serializedProps));
   local_ref<ReadableMap::javaobject> propsRM = make_local(reinterpret_cast<ReadableMap::javaobject>(propsRNM.get()));
 

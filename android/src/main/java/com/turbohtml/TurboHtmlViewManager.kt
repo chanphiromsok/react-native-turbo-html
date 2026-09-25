@@ -22,6 +22,13 @@ class TurboHtmlViewManager :
 
   override fun getDelegate(): ViewManagerDelegate<TurboHtmlView> = delegate
 
+  init {
+    // Opt into Fabric view recycling. Only takes effect when the app enables the
+    // `enableViewRecycling` feature flag (off by default on Android); `reset()` in
+    // `prepareToRecycleView` restores every prop so reuse is safe.
+    setupViewRecycling()
+  }
+
   override fun getName(): String = NAME
 
   override fun createViewInstance(context: ThemedReactContext): TurboHtmlView = TurboHtmlView(context)
@@ -37,6 +44,12 @@ class TurboHtmlViewManager :
   override fun setNumberOfLines(view: TurboHtmlView, value: Int) = view.setNumberOfLines(value)
 
   override fun setDetectPhoneNumbers(view: TurboHtmlView, value: Boolean) = view.setDetectPhoneNumbers(value)
+
+  override fun setHeadingFontWeight(view: TurboHtmlView, value: Int) = view.setHeadingFontWeight(value)
+
+  override fun setColor(view: TurboHtmlView, value: Int?) = view.setTextColor(value)
+
+  override fun setLinkColor(view: TurboHtmlView, value: Int?) = view.setLinkColor(value)
 
   override fun onAfterUpdateTransaction(view: TurboHtmlView) {
     super.onAfterUpdateTransaction(view)
@@ -72,10 +85,11 @@ class TurboHtmlViewManager :
 
     val style =
         styleFor(
-            props?.getStringOr("fontFamily", "Figtree") ?: "Figtree",
+            props?.getStringOr("fontFamily", "") ?: "",
             props?.getDoubleOr("fontSize", 14.0)?.toFloat() ?: 14f,
-            props?.getDoubleOr("lineHeight", 20.0)?.toFloat() ?: 20f,
+            props?.getDoubleOr("lineHeight", 0.0)?.toFloat() ?: 0f,
             props?.takeIf { it.hasKey("detectPhoneNumbers") }?.getBoolean("detectPhoneNumbers") ?: true,
+            props?.takeIf { it.hasKey("headingFontWeight") }?.getInt("headingFontWeight") ?: 700,
         )
     val numberOfLines = props?.takeIf { it.hasKey("numberOfLines") }?.getInt("numberOfLines") ?: 0
     val bounded = widthMode != YogaMeasureMode.UNDEFINED && width.isFinite()
@@ -90,14 +104,25 @@ class TurboHtmlViewManager :
     const val NAME = "TurboHtmlView"
 
     /** Sizes are SP like RN `<Text>` (allowFontScaling): scaled by the system font size. */
-    internal fun styleFor(fontFamily: String, fontSize: Float, lineHeight: Float, detectPhoneNumbers: Boolean) =
-        RichTextStyle(
-            fontFamily = fontFamily,
-            fontSizePx = PixelUtil.toPixelFromSP(if (fontSize > 0) fontSize else 14f),
-            lineHeightPx = PixelUtil.toPixelFromSP(if (lineHeight > 0) lineHeight else 20f),
-            detectPhoneNumbers = detectPhoneNumbers,
-            blockGapPx = PixelUtil.toPixelFromDIP(4f),
-        )
+    internal fun styleFor(
+        fontFamily: String,
+        fontSize: Float,
+        lineHeight: Float,
+        detectPhoneNumbers: Boolean,
+        headingFontWeight: Int,
+    ): RichTextStyle {
+      val size = if (fontSize > 0) fontSize else 14f
+      // 0 = the font's natural line height (≈ 1.2 × size), matching iOS.
+      val height = if (lineHeight > 0) lineHeight else kotlin.math.ceil(size * 1.2f)
+      return RichTextStyle(
+          fontFamily = fontFamily,
+          fontSizePx = PixelUtil.toPixelFromSP(size),
+          lineHeightPx = PixelUtil.toPixelFromSP(height),
+          detectPhoneNumbers = detectPhoneNumbers,
+          headingFontWeight = if (headingFontWeight > 0) headingFontWeight else 700,
+          blockGapPx = PixelUtil.toPixelFromDIP(4f),
+      )
+    }
 
     internal fun markerGapPx(): Float = PixelUtil.toPixelFromDIP(4f)
 

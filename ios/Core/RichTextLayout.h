@@ -16,6 +16,9 @@ struct RichTextPlacedLine {
   CTLineRef line; // owned (+1); released by RichTextLayout's destructor
   // `x` and the baseline `y`, in top-left (UIKit) coordinates.
   CGPoint origin;
+  // Contains a link run: drawn run by run so links get `linkColor`; other lines are a
+  // single CTLineDraw in the body color.
+  bool hasLinks = false;
 };
 
 struct RichTextLinkRect {

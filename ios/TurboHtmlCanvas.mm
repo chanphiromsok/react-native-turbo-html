@@ -24,20 +24,23 @@ using turbohtml::RichTextStyle;
   UITapGestureRecognizer *_tapRecognizer;
 }
 
-/// `--color-secondary` (global.css), resolved per trait collection at draw time.
-+ (UIColor *)bodyColor {
-  static UIColor *color = [UIColor colorWithDynamicProvider:^UIColor *_Nonnull(UITraitCollection *_Nonnull traits) {
-    return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-        ? [UIColor colorWithRed:0.537 green:0.537 blue:0.537 alpha:1] // oklch(0.6301 0 0)
-        : [UIColor colorWithRed:0.490 green:0.490 blue:0.490 alpha:1]; // oklch(0.5897 0 0)
-  }];
-  return color;
+// Colors never affect layout, so setting them only redraws.
+- (void)setTextColor:(UIColor *)textColor {
+  if (textColor == _textColor || [textColor isEqual:_textColor]) return;
+  _textColor = textColor;
+  [self setNeedsDisplay];
+}
+
+- (void)setLinkColor:(UIColor *)linkColor {
+  if (linkColor == _linkColor || [linkColor isEqual:_linkColor]) return;
+  _linkColor = linkColor;
+  [self setNeedsDisplay];
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
   if (self = [super initWithFrame:frame]) {
     _html = @"";
-    _style = RichTextStyle{@"Figtree", 14, 20, true};
+    _style = RichTextStyle{};
     _numberOfLines = 0;
     _layout = RichTextLayout::empty();
     _laidOutWidth = -1;
@@ -61,9 +64,10 @@ using turbohtml::RichTextStyle;
          lineHeight:(double)lineHeight
       numberOfLines:(NSInteger)numberOfLines
  detectPhoneNumbers:(BOOL)detectPhoneNumbers
+  headingFontWeight:(NSInteger)headingFontWeight
           fontScale:(double)fontScale {
-  RichTextStyle style =
-      RichTextStyle::scaled(fontFamily, fontSize, lineHeight, detectPhoneNumbers, fontScale);
+  RichTextStyle style = RichTextStyle::scaled(fontFamily, fontSize, lineHeight, detectPhoneNumbers,
+                                              (int)headingFontWeight, fontScale);
   if ([html isEqualToString:_html] && style == _style && numberOfLines == _numberOfLines) return;
 
   _html = [html copy];
@@ -72,8 +76,16 @@ using turbohtml::RichTextStyle;
   [self relayout];
 }
 
+/// Fabric recycles component views on iOS (on by default): restore every field to its
+/// initial value so nothing from the previous row leaks into the next one. The next
+/// `-setHTML:…` then always differs from this state and triggers a fresh layout.
 - (void)reset {
   _html = @"";
+  _textColor = nil;
+  _linkColor = nil;
+  _style = RichTextStyle{};
+  _numberOfLines = 0;
+  _laidOutWidth = -1;
   _layout = RichTextLayout::empty();
   self.accessibilityLabel = nil;
   self.accessibilityCustomActions = nil;
@@ -103,8 +115,9 @@ using turbohtml::RichTextStyle;
   CGContextRef context = UIGraphicsGetCurrentContext();
   if (context == NULL) return;
 
-  CGColorRef body = [[TurboHtmlCanvas bodyColor] resolvedColorWithTraitCollection:self.traitCollection].CGColor;
-  CGColorRef link = turbohtml::RichTextColors::link();
+  UITraitCollection *traits = self.traitCollection;
+  CGColorRef body = [(_textColor ?: UIColor.labelColor) resolvedColorWithTraitCollection:traits].CGColor;
+  CGColorRef link = [(_linkColor ?: UIColor.linkColor) resolvedColorWithTraitCollection:traits].CGColor;
 
   for (const auto &decoration : _layout->decorations()) {
     CGContextSetFillColorWithColor(context, decoration.isLink ? link : body);
@@ -115,10 +128,21 @@ using turbohtml::RichTextStyle;
   CGContextSetTextMatrix(context, CGAffineTransformIdentity);
   CGContextTranslateCTM(context, 0, self.bounds.size.height);
   CGContextScaleCTM(context, 1, -1);
-  CGContextSetFillColorWithColor(context, body); // body runs use kCTForegroundColorFromContextAttributeName
+  // Every run uses kCTForegroundColorFromContextAttributeName: the fill color set here.
   for (const auto &placed : _layout->lines()) {
     CGContextSetTextPosition(context, placed.origin.x, self.bounds.size.height - placed.origin.y);
-    CTLineDraw(placed.line, context);
+    if (!placed.hasLinks) {
+      CGContextSetFillColorWithColor(context, body);
+      CTLineDraw(placed.line, context);
+      continue;
+    }
+    CFArrayRef runs = CTLineGetGlyphRuns(placed.line);
+    for (CFIndex index = 0, count = CFArrayGetCount(runs); index < count; index++) {
+      CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, index);
+      NSDictionary *attributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
+      CGContextSetFillColorWithColor(context, attributes[turbohtml::RichTextAttribute::Link] ? link : body);
+      CTRunDraw(run, context, CFRangeMake(0, 0));
+    }
   }
   CGContextRestoreGState(context);
 }

@@ -53,7 +53,27 @@ internal object RichTextEngine {
 
   fun clear() = documents.evictAll()
 
-  /** Custom font families registered by expo-font (`Figtree`, `KantumruyPro` XML families); synthesizes italics. */
+  /**
+   * Resolves like RN `<Text fontFamily>` via ReactFontManager: fonts registered by the app
+   * (expo-font XML families, `ReactFontManager.addCustomFont`), `assets/fonts/<name>.ttf`, or
+   * system families. Empty = the system default. Missing weights/italics are synthesized by
+   * Android.
+   */
   private fun typeface(family: String, weight: RichTextFontWeight, italic: Boolean, assets: AssetManager?): Typeface =
-      ReactFontManager.getInstance().getTypeface(family, weight.value, italic, assets)
+      if (family.isBlank()) {
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+          Typeface.create(Typeface.DEFAULT, weight.value, italic)
+        } else {
+          val bold = weight.value >= 600
+          Typeface.defaultFromStyle(
+              when {
+                bold && italic -> Typeface.BOLD_ITALIC
+                bold -> Typeface.BOLD
+                italic -> Typeface.ITALIC
+                else -> Typeface.NORMAL
+              })
+        }
+      } else {
+        ReactFontManager.getInstance().getTypeface(family, weight.value, italic, assets)
+      }
 }

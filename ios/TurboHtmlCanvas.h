@@ -14,12 +14,19 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property(nonatomic, copy, nullable) void (^onLinkPress)(NSString *url, NSString *type);
 
+/// Body text color; nil = `UIColor.labelColor`. Dynamic colors (DynamicColorIOS,
+/// PlatformColor) are resolved against the view's trait collection at draw time.
+@property(nonatomic, strong, nullable) UIColor *textColor;
+/// Link and detected-phone color (text + underline); nil = `UIColor.linkColor`.
+@property(nonatomic, strong, nullable) UIColor *linkColor;
+
 - (void)setHTML:(NSString *)html
          fontFamily:(NSString *)fontFamily
            fontSize:(double)fontSize
          lineHeight:(double)lineHeight
       numberOfLines:(NSInteger)numberOfLines
  detectPhoneNumbers:(BOOL)detectPhoneNumbers
+  headingFontWeight:(NSInteger)headingFontWeight
           fontScale:(double)fontScale;
 
 /// Clears all state for view recycling.

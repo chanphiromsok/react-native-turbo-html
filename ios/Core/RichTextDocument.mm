@@ -11,18 +11,14 @@ NSString *const RichTextAttribute::Link = @"TurboHtmlLink";
 NSString *const RichTextAttribute::Underline = @"TurboHtmlUnderline";
 NSString *const RichTextAttribute::Strikethrough = @"TurboHtmlStrikethrough";
 
-CGColorRef RichTextColors::link() {
-  static CGColorRef color = CGColorCreateGenericRGB(0.016, 0.671, 0.322, 1);
-  return color;
-}
-
 RichTextStyle RichTextStyle::scaled(NSString *fontFamily, double fontSize, double lineHeight,
-                                    bool detectPhoneNumbers, double fontScale) {
+                                    bool detectPhoneNumbers, int headingFontWeight, double fontScale) {
   double scale = fontScale > 0 ? fontScale : 1;
   double size = fontSize > 0 ? fontSize : 14;
-  double height = lineHeight > 0 ? lineHeight : 20;
+  double height = lineHeight > 0 ? lineHeight : ceil(size * 1.2);
   RichTextStyle style;
-  style.fontFamily = fontFamily.length > 0 ? fontFamily : @"Figtree";
+  style.fontFamily = fontFamily ?: @"";
+  style.headingFontWeight = headingFontWeight > 0 ? headingFontWeight : 700;
   style.fontSize = (CGFloat)(size * scale);
   style.lineHeight = (CGFloat)(height * scale);
   style.detectPhoneNumbers = detectPhoneNumbers;
@@ -307,12 +303,10 @@ class DocumentBuilderImpl final : public HTMLEventSink {
     switch (tag.kind) {
       case HTMLTagKind::H1:
       case HTMLTagKind::H2:
-        // RenderHtml: `font-bold`, which fontMapper maps to semibold for Khmer.
-        return [style_.fontFamily isEqualToString:@"KantumruyPro"] ? RichTextFontWeight::SemiBold
-                                                                    : RichTextFontWeight::Bold;
+        return RichTextFontWeightFromNumeric(style_.headingFontWeight);
       case HTMLTagKind::H3:
       case HTMLTagKind::H4:
-        return RichTextFontWeight::SemiBold;
+        return RichTextFontWeightFromNumeric(std::min(style_.headingFontWeight, 600));
       default:
         return RichTextFontWeight::Regular;
     }
@@ -380,9 +374,7 @@ class DocumentBuilderImpl final : public HTMLEventSink {
       }
       NSString *number = [raw substringWithRange:range];
       InlineStyle phoneStyle = style;
-      NSString *tel = [@"tel:" stringByAppendingString:[number stringByReplacingOccurrencesOfString:@" "
-                                                                                           withString:@""]];
-      phoneStyle.link = [[RichTextLinkValue alloc] initWithUrl:tel isPhone:YES];
+      phoneStyle.link = [[RichTextLinkValue alloc] initWithUrl:RichTextPhoneDetector::telURL(number) isPhone:YES];
       append(number, phoneStyle);
       cursor = range.location + range.length;
     }
@@ -424,13 +416,12 @@ class DocumentBuilderImpl final : public HTMLEventSink {
     NSMutableDictionary *attrs = [NSMutableDictionary dictionaryWithCapacity:4];
     attrs[(id)kCTFontAttributeName] =
         (__bridge id)RichTextFonts::font(style_.fontFamily, style.weight, style.italic, style_.fontSize);
+    attrs[(id)kCTForegroundColorFromContextAttributeName] = @YES;
     if (style.link != nil) {
-      attrs[(id)kCTForegroundColorAttributeName] = (__bridge id)RichTextColors::link();
       attrs[RichTextAttribute::Link] = style.link;
       attrs[RichTextAttribute::Underline] = @YES;
-    } else {
-      attrs[(id)kCTForegroundColorFromContextAttributeName] = @YES;
-      if (style.underline) attrs[RichTextAttribute::Underline] = @YES;
+    } else if (style.underline) {
+      attrs[RichTextAttribute::Underline] = @YES;
     }
     if (style.strikethrough) attrs[RichTextAttribute::Strikethrough] = @YES;
     return [attrs copy];
@@ -457,7 +448,26 @@ std::shared_ptr<RichTextDocument> RichTextDocumentBuilder::build(const char *htm
   DocumentBuilderImpl builder(style);
   HTMLScanner::scan(html, htmlLength, builder);
   builder.closeAll();
-  return std::make_shared<RichTextDocument>(std::move(builder.paragraphs()), builder.plainText());
+
+  // Editors pad API content with empty blocks (`<p><br></p>`, `<p>&nbsp;</p>`) — drop them at
+  // the start and end, where they would only render as blank space. Blocks in the middle are
+  // the author's spacing and stay. List items keep their marker, so they are never blank.
+  std::vector<RichTextParagraph> paragraphs = std::move(builder.paragraphs());
+  static NSCharacterSet *blankSet = [] {
+    NSMutableCharacterSet *set = [NSMutableCharacterSet whitespaceAndNewlineCharacterSet];
+    [set addCharactersInString:@"\u00A0\u2028"];
+    return [set copy];
+  }();
+  auto isBlank = [](const RichTextParagraph &p) {
+    return p.prefix == nil && [p.text.string stringByTrimmingCharactersInSet:blankSet].length == 0;
+  };
+  while (!paragraphs.empty() && isBlank(paragraphs.back())) paragraphs.pop_back();
+  size_t leading = 0;
+  while (leading < paragraphs.size() && isBlank(paragraphs[leading])) leading++;
+  paragraphs.erase(paragraphs.begin(), paragraphs.begin() + (long)leading);
+
+  NSString *plainText = [builder.plainText() stringByTrimmingCharactersInSet:blankSet];
+  return std::make_shared<RichTextDocument>(std::move(paragraphs), plainText);
 }
 
 NSString *RichTextDocumentBuilder::linkURL(NSString *href) {
@@ -479,6 +489,35 @@ NSString *RichTextDocumentBuilder::linkURL(NSString *href) {
   return url.absoluteString;
 }
 
+namespace {
+
+// ASCII and Khmer (០–៩) digits: Khmer content often writes phone numbers in Khmer numerals.
+inline bool isPhoneDigit(unichar c) { return (c >= '0' && c <= '9') || (c >= 0x17E0 && c <= 0x17E9); }
+
+// Pattern pieces. Separators inside a number: space, dash, and the invisible / non-breaking
+// spaces editors and Khmer keyboards insert between groups (e.g. "098\u200B 858\u200B 713"):
+// NBSP, figure/thin/narrow spaces, zero-width space/non-joiner/joiner, word joiner, BOM.
+NSString *const kPhoneDigit = @"[0-9\\u17E0-\\u17E9]";
+NSString *const kPhoneSeparator = @"[ \\-\\u00A0\\u2007\\u2009\\u202F\\u200B\\u200C\\u200D\\u2060\\uFEFF]";
+
+} // namespace
+
+NSString *RichTextPhoneDetector::telURL(NSString *number) {
+  NSMutableString *tel = [NSMutableString stringWithString:@"tel:"];
+  NSUInteger length = number.length;
+  for (NSUInteger i = 0; i < length; i++) {
+    unichar c = [number characterAtIndex:i];
+    if (c >= '0' && c <= '9') {
+      [tel appendFormat:@"%C", c];
+    } else if (c >= 0x17E0 && c <= 0x17E9) {
+      [tel appendFormat:@"%C", (unichar)('0' + (c - 0x17E0))];
+    } else if (c == '+' && tel.length == 4) {
+      [tel appendString:@"+"];
+    }
+  }
+  return tel;
+}
+
 std::vector<NSRange> RichTextPhoneDetector::matches(NSString *text) {
   std::vector<NSRange> result;
 
@@ -486,18 +525,18 @@ std::vector<NSRange> RichTextPhoneDetector::matches(NSString *text) {
   NSUInteger digitCount = 0;
   NSUInteger length = text.length;
   for (NSUInteger i = 0; i < length; i++) {
-    unichar c = [text characterAtIndex:i];
-    if (c >= '0' && c <= '9') {
-      digitCount += 1;
-      if (digitCount >= 8) break;
-    }
+    if (isPhoneDigit([text characterAtIndex:i]) && ++digitCount >= 8) break;
   }
   if (digitCount < 8) return result;
 
-  static NSRegularExpression *candidatePattern =
-      [NSRegularExpression regularExpressionWithPattern:@"\\+?\\d[\\d \\-]{6,}\\d" options:0 error:nil];
+  static NSRegularExpression *candidatePattern = [NSRegularExpression
+      regularExpressionWithPattern:[NSString stringWithFormat:@"\\+?%@(?:%@|%@){6,}%@", kPhoneDigit, kPhoneDigit,
+                                                              kPhoneSeparator, kPhoneDigit]
+                           options:0
+                             error:nil];
   static NSRegularExpression *dateShapePattern = [NSRegularExpression
-      regularExpressionWithPattern:@"^(\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}-\\d{1,2}-\\d{4})$"
+      regularExpressionWithPattern:[NSString stringWithFormat:@"^(%1$@{4}-%1$@{1,2}-%1$@{1,2}|%1$@{1,2}-%1$@{1,2}-%1$@{4})$",
+                                                              kPhoneDigit]
                            options:0
                              error:nil];
 
@@ -508,8 +547,7 @@ std::vector<NSRange> RichTextPhoneDetector::matches(NSString *text) {
     NSString *value = [text substringWithRange:range];
     NSUInteger digits = 0;
     for (NSUInteger i = 0; i < value.length; i++) {
-      unichar c = [value characterAtIndex:i];
-      if (c >= '0' && c <= '9') digits += 1;
+      if (isPhoneDigit([value characterAtIndex:i])) digits += 1;
     }
     if (digits < 8 || digits > 15) continue;
     NSRange valueWhole = NSMakeRange(0, value.length);

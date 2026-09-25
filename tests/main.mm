@@ -109,7 +109,8 @@ int main(int argc, char *argv[]) {
     registerAppFonts(fontsDir);
 
     RichTextStyle style{@"Figtree", 14, 20, true};
-    RichTextStyle khmerStyle{@"KantumruyPro", 14, 20, true};
+    // The app passes headingFontWeight 600 for Khmer (its fontMapper maps font-bold → semibold).
+    RichTextStyle khmerStyle{@"KantumruyPro", 14, 20, true, 600};
 
     // MARK: - Scanner / entities
 
@@ -181,8 +182,36 @@ int main(int argc, char *argv[]) {
       CHECK(CTFontGetSize(font0) == 14, @"headings keep base size (className wins in RenderHtml's cn())");
 
       auto k = makeDoc(@"<h1>\u1780</h1><p><b>\u1781</b></p>", khmerStyle);
-      CHECK([fontNameAt(k, 0, 0) isEqualToString:@"KantumruyPro-SemiBold"], @"km h1 -> semibold (fontMapper)");
+      CHECK([fontNameAt(k, 0, 0) isEqualToString:@"KantumruyPro-SemiBold"], @"headingFontWeight 600 -> semibold h1");
       CHECK([fontNameAt(k, 1, 0) isEqualToString:@"KantumruyPro-Bold"], @"km inline bold -> bold");
+    }
+
+    // MARK: - Font resolution (any app's fonts, like RN <Text fontFamily>)
+
+    {
+      auto nameFor = [](NSString *family, NSString *html) {
+        RichTextStyle s{family, 14, 20, true};
+        return fontNameAt(makeDoc(html, s), 0, 0);
+      };
+      CHECK([nameFor(@"Figtree", @"<p><b>x</b></p>") isEqualToString:@"Figtree-Bold"], @"family name + bold");
+      CHECK([nameFor(@"Figtree-Regular", @"<p><b>x</b></p>") isEqualToString:@"Figtree-Bold"],
+            @"PostScript name + bold -> sibling face");
+      CHECK([nameFor(@"Figtree-Bold", @"<p>x</p>") isEqualToString:@"Figtree-Regular"],
+            @"PostScript name of a bold face + regular text -> regular sibling");
+      NSString *kmFamily = (__bridge_transfer NSString *)CTFontCopyFamilyName(
+          turbohtml::RichTextFonts::font(@"KantumruyPro-Regular", turbohtml::RichTextFontWeight::Regular, false, 14));
+      NSString *kmMessage = [NSString stringWithFormat:@"real family name '%@' + bold", kmFamily];
+      CHECK([nameFor(kmFamily, @"<p><b>x</b></p>") isEqualToString:@"KantumruyPro-Bold"], kmMessage);
+      CHECK([nameFor(@"KantumruyPro", @"<h3>x</h3>") isEqualToString:@"KantumruyPro-SemiBold"],
+            @"legacy <family>-<Weight> naming still resolves");
+      NSString *system = nameFor(@"", @"<p>x</p>");
+      NSString *systemMessage = [NSString stringWithFormat:@"empty family -> system font (%@)", system];
+      CHECK((system.length > 0 && ![system hasPrefix:@"Figtree"] && ![system hasPrefix:@"Kantumruy"]), systemMessage);
+      NSString *unknown = nameFor(@"NoSuchFontFamily", @"<p>x</p>");
+      CHECK([unknown isEqualToString:system], @"unknown family -> system font");
+      RichTextStyle defaults{};
+      CHECK([defaults.fontFamily isEqualToString:@""] && defaults.headingFontWeight == 700,
+            @"defaults: system font, bold headings");
     }
 
     // MARK: - Links and phones
@@ -209,6 +238,28 @@ int main(int argc, char *argv[]) {
       auto d = makeDoc(@"<p>Call 012 345 678</p>", style);
       RichTextLinkValue *tel = linkAt(d, 0, 6);
       CHECK(tel != nil && [tel.url isEqualToString:@"tel:012345678"] && tel.isPhone, @"tel link, whitespace stripped");
+
+      // Real API content: Khmer editors put a zero-width space (U+200B) before each space.
+      NSString *zwsp = @"<p>\u1791\u17B6\u1780\u17CB\u200B:\u200B 098\u200B 858\u200B 713/ 088 43 44 43 4</p>";
+      auto kz = makeDoc(zwsp, style);
+      NSString *kzText = kz->paragraphs()[0].text.string;
+      NSUInteger firstAt = [kzText rangeOfString:@"098"].location;
+      NSUInteger secondAt = [kzText rangeOfString:@"088"].location;
+      RichTextLinkValue *first = linkAt(kz, 0, firstAt);
+      RichTextLinkValue *second = linkAt(kz, 0, secondAt);
+      CHECK(first != nil && [first.url isEqualToString:@"tel:098858713"], @"number with U+200B separators detected, tel digits only");
+      CHECK(second != nil && [second.url isEqualToString:@"tel:0884344434"], @"second number on the same line still detected");
+      CHECK(linkAt(kz, 0, [kzText rangeOfString:@"/"].location) == nil, @"slash between numbers is not linked");
+
+      // Khmer numerals.
+      auto kd = makeDoc(@"<p>\u179B\u17C1\u1781 \u17E0\u17E9\u17E8 \u17E8\u17E5\u17E8 \u17E7\u17E1\u17E3</p>", style);
+      NSString *kdText = kd->paragraphs()[0].text.string;
+      RichTextLinkValue *khmerDigits = linkAt(kd, 0, [kdText rangeOfString:@"\u17E0"].location);
+      CHECK(khmerDigits != nil && [khmerDigits.url isEqualToString:@"tel:098858713"], @"Khmer digits detected, tel mapped to ASCII");
+      CHECK(RichTextPhoneDetector::matches(@"\u17E2\u17E0\u17E2\u17E4-\u17E0\u17E1-\u17E1\u17E5").empty(),
+            @"Khmer-digit date is not a phone");
+      CHECK([RichTextPhoneDetector::telURL(@"+855\u200B 12 345 678") isEqualToString:@"tel:+85512345678"],
+            @"leading + kept, invisible separators dropped");
       auto inLink = makeDoc(@"<p><a href=\"https://a.com\">012 345 678</a></p>", style);
       CHECK(linkAt(inLink, 0, 0).isPhone == NO, @"no phone detection inside <a>");
       auto bare = makeDoc(@"Call 012 345 678", style);
@@ -224,8 +275,17 @@ int main(int argc, char *argv[]) {
       CHECK(two->height() == 44 && two->lineCount() == 2, @"two blocks = 20 + 4 + 20");
       auto br = makeLayout(@"<p>a<br>b</p>", 343, 0, style);
       CHECK(br->lineCount() == 2 && br->height() == 40, @"br breaks line");
-      auto blank = makeLayout(@"<p><br></p>", 343, 0, style);
-      CHECK(blank->lineCount() == 2, @"<p><br></p> = 2 lines like RN \"\\n\"");
+      auto blank = makeLayout(@"<p>a</p><p><br></p><p>b</p>", 343, 0, style);
+      CHECK(blank->lineCount() == 3, @"<p><br></p> between blocks = one empty line (browser <br> semantics)");
+      auto trailingBr = makeLayout(@"<p>a<br></p>", 343, 0, style);
+      CHECK(trailingBr->lineCount() == 1 && trailingBr->height() == 20, @"trailing <br> adds no extra line");
+      auto fourBr = makeLayout(@"<p>a</p><p><br><br><br><br></p><p>b</p>", 343, 0, style);
+      CHECK(fourBr->lineCount() == 6, @"blank block in the middle keeps its 4 lines");
+      auto padded = makeDoc(@"<p><br></p><p>&nbsp;</p><p>text</p><p><br><br><br><br></p><p><br></p><p>&nbsp; </p>", style);
+      CHECK(padded->paragraphs().size() == 1 && [padded->plainText() isEqualToString:@"text"],
+            @"leading/trailing empty editor blocks are trimmed");
+      auto paddedLayout = makeLayout(@"<p>text</p><p><br><br><br><br></p><p><br></p>", 343, 0, style);
+      CHECK(paddedLayout->height() == 20, @"trailing editor padding adds no height");
       auto empty = makeLayout(@"", 343, 0, style);
       CHECK(empty->height() == 0, @"empty html");
     }

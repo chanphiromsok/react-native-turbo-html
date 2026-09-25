@@ -16,6 +16,7 @@ extern "C" double TurboHtmlMeasure(
     double lineHeight,
     int numberOfLines,
     bool detectPhoneNumbers,
+    int headingFontWeight,
     double width,
     double fontScale,
     double *outUsedWidth);
@@ -68,6 +69,7 @@ Size TurboHtmlViewShadowNode::measureContent(
       props.lineHeight,
       props.numberOfLines,
       props.detectPhoneNumbers,
+      props.headingFontWeight,
       width,
       layoutContext.fontSizeMultiplier,
       &usedWidth);

@@ -41,5 +41,6 @@ class RichTextEngine {
 // Returns the height; writes the width actually used by the text to `outUsedWidth`. Keep
 // this signature in sync with cpp/react/renderer/components/TurboHtmlViewSpec/TurboHtmlViewShadowNode.cpp.
 extern "C" double TurboHtmlMeasure(const char *html, long htmlLength, const char *fontFamily, double fontSize,
-                                    double lineHeight, int numberOfLines, bool detectPhoneNumbers, double width,
-                                    double fontScale, double *outUsedWidth);
+                                    double lineHeight, int numberOfLines, bool detectPhoneNumbers,
+                                    int headingFontWeight, double width, double fontScale,
+                                    double *outUsedWidth);

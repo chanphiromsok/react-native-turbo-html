@@ -41,6 +41,7 @@ NSUInteger HashStyle(const RichTextStyle &style) {
   h = CombineHash(h, (NSUInteger)llround(style.fontSize * 1000));
   h = CombineHash(h, (NSUInteger)llround(style.lineHeight * 1000));
   h = CombineHash(h, style.detectPhoneNumbers ? 1u : 0u);
+  h = CombineHash(h, (NSUInteger)style.headingFontWeight);
   return h;
 }
 
@@ -262,12 +263,12 @@ void RichTextEngine::clear() {
 } // namespace turbohtml
 
 double TurboHtmlMeasure(const char *html, long htmlLength, const char *fontFamily, double fontSize,
-                        double lineHeight, int numberOfLines, bool detectPhoneNumbers, double width,
-                        double fontScale, double *outUsedWidth) {
+                        double lineHeight, int numberOfLines, bool detectPhoneNumbers, int headingFontWeight,
+                        double width, double fontScale, double *outUsedWidth) {
   @autoreleasepool {
     turbohtml::RichTextStyle style = turbohtml::RichTextStyle::scaled(
-        [NSString stringWithUTF8String:fontFamily] ?: @"Figtree", fontSize, lineHeight, detectPhoneNumbers,
-        fontScale);
+        [NSString stringWithUTF8String:fontFamily] ?: @"", fontSize, lineHeight, detectPhoneNumbers,
+        headingFontWeight, fontScale);
     // Raw bytes straight from the ShadowNode's `std::string` prop — no NSString round trip
     // on the hot path (see `RichTextEngine::layout`'s doc comment).
     auto layout =
