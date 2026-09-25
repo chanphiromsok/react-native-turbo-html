@@ -1,53 +1,52 @@
 buildscript {
-  ext.TurboHtml = [
-    kotlinVersion: "2.0.21",
-    minSdkVersion: 24,
-    compileSdkVersion: 36
-  ]
-
-  ext.getExtOrDefault = { prop ->
-    if (rootProject.ext.has(prop)) {
-      return rootProject.ext.get(prop)
-    }
-
-    return TurboHtml[prop]
-  }
-
   repositories {
     google()
     mavenCentral()
   }
-
   dependencies {
-    classpath "com.android.tools.build:gradle:8.7.2"
-    // noinspection DifferentKotlinGradleVersion
-    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${getExtOrDefault('kotlinVersion')}"
+    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${rootProject.ext.has('kotlinVersion') ? rootProject.ext.get('kotlinVersion') : '2.1.20'}"
   }
 }
 
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
 
+// Codegen (Props/EventEmitter C++, ViewManager interface/delegate) — New Architecture only.
+apply plugin: "com.facebook.react"
 apply plugin: "com.android.library"
 
-if (project.extensions.findByName("kotlin") == null) {
+// AGP 9 builds Kotlin itself unless the app opts out with `android.builtInKotlin=false`
+// (same fallback as react-native-safe-area-context / react-native-screens).
+def shouldApplyKotlinPlugin() {
+  def agpMajor = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.tokenize('.')[0].toInteger()
+  if (agpMajor <= 8) return true
+  def builtIn = providers.gradleProperty("android.builtInKotlin").orNull
+  return builtIn != null && !builtIn.toBoolean()
+}
+if (shouldApplyKotlinPlugin()) {
   apply plugin: "kotlin-android"
 }
 
-
-apply plugin: "com.facebook.react"
-
 android {
   namespace "com.turbohtml"
-
-  compileSdkVersion getExtOrDefault("compileSdkVersion")
+  compileSdkVersion safeExtGet("compileSdkVersion", 36)
 
   defaultConfig {
-    minSdkVersion getExtOrDefault("minSdkVersion")
+    minSdkVersion safeExtGet("minSdkVersion", 24)
+    targetSdkVersion safeExtGet("targetSdkVersion", 36)
   }
 
-  compileOptions {
-    sourceCompatibility JavaVersion.VERSION_17
-    targetCompatibility JavaVersion.VERSION_17
+  sourceSets {
+    main {
+      java.srcDirs += ["${project.buildDir}/generated/source/codegen/java"]
+    }
   }
+}
+
+repositories {
+  google()
+  mavenCentral()
 }
 
 dependencies {

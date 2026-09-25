@@ -6,6 +6,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// Fabric host for `<TurboHtmlView>`. Sizing happens in the hand-written C++ ShadowNode
+/// (cpp/react/renderer/components/TurboHtmlViewSpec); this view only forwards props to
+/// `TurboHtmlCanvas` and emits `onLinkPress`.
 @interface TurboHtmlView : RCTViewComponentView
 @end
 
