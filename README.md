@@ -17,6 +17,8 @@ as a style, no post-mount resize/jump.
 
 iOS and Android get the real native engine; web is a plain-text fallback only.
 
+<img src="docs/image.png" alt="App Screenshot" width="500">
+
 ## Why not just measure in JS?
 
 | Option | Sizes itself? | Verdict |
