@@ -4,6 +4,8 @@
 #import <CoreText/CoreText.h>
 #import <Foundation/Foundation.h>
 
+NS_ASSUME_NONNULL_BEGIN
+
 // ObjC++ port of ios/Core/RichTextFonts.swift.
 namespace turbohtml {
 
@@ -34,3 +36,5 @@ class RichTextFonts {
 };
 
 } // namespace turbohtml
+
+NS_ASSUME_NONNULL_END

@@ -9,6 +9,8 @@
 
 #import "RichTextDocument.h"
 
+NS_ASSUME_NONNULL_BEGIN
+
 // ObjC++ port of ios/Core/RichTextLayout.swift.
 namespace turbohtml {
 
@@ -77,3 +79,5 @@ class RichTextLayouter {
 };
 
 } // namespace turbohtml
+
+NS_ASSUME_NONNULL_END

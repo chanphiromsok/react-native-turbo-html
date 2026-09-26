@@ -7,6 +7,8 @@
 
 #import "RichTextLayout.h"
 
+NS_ASSUME_NONNULL_BEGIN
+
 // ObjC++ port of ios/Core/RichTextEngine.swift.
 namespace turbohtml {
 
@@ -44,3 +46,4 @@ extern "C" double TurboHtmlMeasure(const char *html, long htmlLength, const char
                                     double lineHeight, int numberOfLines, bool detectPhoneNumbers,
                                     int headingFontWeight, double width, double fontScale,
                                     double *outUsedWidth);
+NS_ASSUME_NONNULL_END

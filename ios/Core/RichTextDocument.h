@@ -10,6 +10,8 @@
 
 #import "RichTextFonts.h"
 
+NS_ASSUME_NONNULL_BEGIN
+
 // Value of `RichTextAttribute.link`. Declared at global scope: Objective-C `@interface`
 // blocks cannot be nested inside a C++ namespace.
 @interface RichTextLinkValue : NSObject
@@ -107,3 +109,5 @@ class RichTextPhoneDetector {
 };
 
 } // namespace turbohtml
+
+NS_ASSUME_NONNULL_END

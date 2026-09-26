@@ -3,6 +3,8 @@
 #import <Foundation/Foundation.h>
 #include <string>
 
+NS_ASSUME_NONNULL_BEGIN
+
 // The tags `RichTextDocumentBuilder` treats specially. Everything else is `Other`, which
 // the builder unwraps (children kept), matching `RenderHtml`.
 //
@@ -64,3 +66,5 @@ class HTMLScanner {
 };
 
 } // namespace turbohtml
+
+NS_ASSUME_NONNULL_END
