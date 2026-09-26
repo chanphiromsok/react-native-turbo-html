@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TurboHtmlView Render Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f1f4f7;
+    --surface: #ffffff;
+    --surface-2: #f7f9fb;
+    --ink: #13202b;
+    --muted: #5d6b78;
+    --line: #d8dfe6;
+    --js: #b26f12;
+    --js-soft: #fbf1e1;
+    --cpp: #0b857a;
+    --cpp-soft: #e2f4f1;
+    --ui: #5646cf;
+    --ui-soft: #ecebfb;
+    --hit: #198a4c;
+    --warn: #c8363b;
+    --warn-soft: #fbe7e7;
+    --phone: #0f1419;
+    --shadow: 0 1px 2px rgba(19, 32, 43, 0.06), 0 8px 24px rgba(19, 32, 43, 0.06);
+    --display: "Manrope", "Segoe UI", system-ui, sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0e141a;
+      --surface: #161f28;
+      --surface-2: #1b2530;
+      --ink: #e5ecf2;
+      --muted: #95a3b0;
+      --line: #2a3643;
+      --js: #e6a444;
+      --js-soft: #2b2214;
+      --cpp: #3cc4b4;
+      --cpp-soft: #10292a;
+      --ui: #9c8dff;
+      --ui-soft: #211f3c;
+      --hit: #46c57d;
+      --warn: #f07a7a;
+      --warn-soft: #3a1c1e;
+      --phone: #05080b;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0e141a;
+    --surface: #161f28;
+    --surface-2: #1b2530;
+    --ink: #e5ecf2;
+    --muted: #95a3b0;
+    --line: #2a3643;
+    --js: #e6a444;
+    --js-soft: #2b2214;
+    --cpp: #3cc4b4;
+    --cpp-soft: #10292a;
+    --ui: #9c8dff;
+    --ui-soft: #211f3c;
+    --hit: #46c57d;
+    --warn: #f07a7a;
+    --warn-soft: #3a1c1e;
+    --phone: #05080b;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 var(--body);
+    padding: 28px 20px 48px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 22px; }
+
+  header { display: grid; gap: 8px; max-width: 760px; }
+  .eyebrow {
+    font: 500 12px/1 var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    font: 800 clamp(26px, 4vw, 38px)/1.1 var(--display);
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .lede { margin: 0; color: var(--muted); max-width: 66ch; }
+  code, .mono { font-family: var(--mono); font-size: 0.92em; }
+
+  /* ---------- controls ---------- */
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; box-shadow: var(--shadow);
+  }
+  .btn {
+    font: 600 14px/1 var(--body); color: var(--ink); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn:focus-visible, .step-chip:focus-visible, .mode input:focus-visible + span { outline: 2px solid var(--ui); outline-offset: 2px; }
+  .btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); min-width: 92px; justify-content: center; }
+  .steps { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 360px; }
+  .step-chip {
+    font: 500 12.5px/1 var(--body); color: var(--muted); background: transparent;
+    border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; cursor: pointer;
+    display: inline-flex; gap: 6px; align-items: center;
+  }
+  .step-chip b { font: 600 11px/1 var(--mono); color: var(--muted); }
+  .step-chip.done { color: var(--ink); }
+  .step-chip.current { color: var(--bg); background: var(--ink); border-color: var(--ink); }
+  .step-chip.current b { color: var(--bg); }
+  .mode { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); cursor: pointer; }
+  .mode input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .mode span.switch {
+    width: 38px; height: 22px; border-radius: 999px; background: var(--line); position: relative; transition: background 0.2s;
+  }
+  .mode span.switch::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--surface); transition: transform 0.2s;
+  }
+  .mode input:checked + span.switch { background: var(--warn); }
+  .mode input:checked + span.switch::after { transform: translateX(16px); }
+  .progress { height: 3px; background: var(--line); border-radius: 3px; overflow: hidden; flex: 1 0 100%; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--ink); }
+
+  /* ---------- caption ---------- */
+  .caption {
+    display: grid; gap: 6px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); min-height: 112px;
+  }
+  .caption .where { font: 500 12px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+  .caption h2 { font: 700 20px/1.25 var(--display); margin: 0; letter-spacing: -0.01em; }
+  .caption p { margin: 0; color: var(--muted); max-width: 90ch; }
+  .caption pre {
+    margin: 4px 0 0; font: 12.5px/1.5 var(--mono); background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; overflow-x: auto; color: var(--ink);
+  }
+
+  /* ---------- stage ---------- */
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 22px; align-items: start; }
+  @media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+
+  .lanes { display: grid; gap: 0; }
+  .lane {
+    border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
+    padding: 14px; display: grid; gap: 12px; box-shadow: var(--shadow);
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .lane-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; align-items: baseline; }
+  .lane-title { font: 700 15px/1.2 var(--display); display: flex; align-items: center; gap: 8px; }
+  .lane-title .dot { width: 10px; height: 10px; border-radius: 3px; }
+  .lane-thread { font: 500 12px/1 var(--mono); color: var(--muted); }
+  .lane.js .dot { background: var(--js); }
+  .lane.cpp .dot { background: var(--cpp); }
+  .lane.ui .dot { background: var(--ui); }
+  .lane.live.js { border-color: var(--js); }
+  .lane.live.cpp { border-color: var(--cpp); }
+  .lane.live.ui { border-color: var(--ui); }
+
+  .connector { height: 34px; position: relative; display: flex; justify-content: center; }
+  .connector::before {
+    content: ""; width: 2px; height: 100%; background: var(--line);
+  }
+  .connector .pkt {
+    position: absolute; top: 0; left: 50%; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
+    opacity: 0;
+  }
+  .connector.flow .pkt { animation: drop 0.9s ease-in-out infinite; opacity: 1; }
+  .connector .label {
+    position: absolute; left: calc(50% + 14px); top: 50%; transform: translateY(-50%);
+    font: 500 11.5px/1.2 var(--mono); color: var(--muted); white-space: nowrap;
+  }
+  @keyframes drop { 0% { transform: translateY(0); } 100% { transform: translateY(24px); } }
+
+  /* tree nodes */
+  .tree { display: grid; gap: 6px; font: 13px/1.35 var(--mono); }
+  .node {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; justify-content: space-between;
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: var(--surface-2);
+    opacity: 0.35; transform: translateY(4px); transition: opacity 0.35s, transform 0.35s, border-color 0.3s, background 0.3s;
+  }
+  .node.on { opacity: 1; transform: none; }
+  .node .name { overflow-wrap: anywhere; }
+  .indent-1 { margin-left: 16px; }
+  .indent-2 { margin-left: 32px; }
+  .node .meta { color: var(--muted); font-size: 11.5px; }
+  .node.hot { border-color: currentColor; }
+  .lane.js .node.hot { color: var(--js); background: var(--js-soft); }
+  .lane.cpp .node.hot { color: var(--cpp); background: var(--cpp-soft); }
+  .lane.ui .node.hot { color: var(--ui); background: var(--ui-soft); }
+  .node.hot .meta { color: inherit; }
+
+  .badge {
+    font: 600 11px/1 var(--mono); border-radius: 999px; padding: 4px 7px; border: 1px solid var(--line);
+    color: var(--muted); background: var(--surface); white-space: nowrap; transition: all 0.3s;
+  }
+  .badge.size.ok { color: var(--hit); border-color: var(--hit); }
+  .badge.size.bad { color: var(--warn); border-color: var(--warn); }
+  .badge.cache { color: var(--hit); border-color: var(--hit); }
+
+  /* measure panel */
+  .measure {
+    display: grid; gap: 8px; border: 1px dashed var(--cpp); border-radius: 10px; padding: 10px 12px;
+    background: var(--cpp-soft); opacity: 0.3; transition: opacity 0.35s;
+  }
+  .measure.on { opacity: 1; }
+  .measure .row { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font: 12.5px/1.35 var(--mono); }
+  .measure .bar { height: 8px; border-radius: 4px; background: var(--cpp); width: 0; transition: width 0.8s ease-out; }
+  .measure .phase { display: grid; grid-template-columns: 112px 1fr 64px; gap: 8px; align-items: center; font: 12px/1.3 var(--mono); }
+  .measure .phase span:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .measure.skip { border-color: var(--warn); background: var(--warn-soft); }
+  .measure .skipmsg { color: var(--warn); font: 600 12.5px/1.35 var(--mono); }
+
+  /* mutations */
+  .mutations { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mut {
+    font: 500 12px/1 var(--mono); border-radius: 6px; padding: 6px 8px; border: 1px solid var(--line);
+    background: var(--surface-2); color: var(--muted); opacity: 0.3; transition: all 0.35s;
+  }
+  .mut.on { opacity: 1; color: var(--ink); }
+  .mut.applied { border-color: var(--ui); color: var(--ui); background: var(--ui-soft); }
+  .mut.second { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+
+  .cache {
+    display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; justify-content: space-between;
+    border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--surface);
+    font: 12.5px/1.35 var(--mono); box-shadow: var(--shadow);
+  }
+  .cache .slot { display: flex; gap: 6px; }
+  .cache .slot i {
+    width: 22px; height: 16px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface-2);
+    transition: background 0.3s, border-color 0.3s;
+  }
+  .cache .slot i.fill { background: var(--hit); border-color: var(--hit); }
+  .cache .slot i.read { box-shadow: 0 0 0 3px color-mix(in srgb, var(--hit) 35%, transparent); }
+
+  /* ---------- phone ---------- */
+  .phone-col { display: grid; gap: 10px; justify-items: center; position: sticky; top: 16px; }
+  @media (max-width: 900px) { .phone-col { position: static; } }
+  .phone {
+    width: 260px; max-width: 100%; border-radius: 34px; padding: 12px; background: var(--phone);
+    box-shadow: var(--shadow);
+  }
+  .screen {
+    border-radius: 24px; overflow: hidden; background: #ffffff; height: 470px; position: relative;
+    color: #16202a; font-family: var(--body);
+  }
+  .screen .status { height: 26px; display: flex; justify-content: center; align-items: center; }
+  .screen .status i { width: 70px; height: 16px; background: #0f1419; border-radius: 10px; }
+  .feed { padding: 0 12px; display: grid; gap: 0; }
+  .img {
+    height: 96px; border-radius: 10px;
+    background: linear-gradient(135deg, #8cc6a2, #4f9a7a 55%, #2f6a5a);
+  }
+  .img.next { background: linear-gradient(135deg, #f0b27a, #d9795a 55%, #9c4a4a); height: 120px; margin-top: 10px; }
+  .row-title { font: 700 14px/1.3 var(--body); margin-top: 10px; }
+  .row-loc { font: 12px/1.3 var(--body); color: #0b8a4a; margin-top: 2px; }
+  .desc {
+    overflow: hidden; height: 0; transition: height 0.55s cubic-bezier(0.2, 0.8, 0.2, 1); position: relative;
+  }
+  .desc .lines { padding-top: 6px; font: 12.5px/19px var(--body); color: #6b7580; }
+  .desc .lines span { display: block; opacity: 0; transition: opacity 0.25s; }
+  .desc.drawn .lines span { opacity: 1; }
+  .desc.drawn .lines span:nth-child(2) { transition-delay: 0.08s; }
+  .desc.drawn .lines span:nth-child(3) { transition-delay: 0.16s; }
+  .desc.drawn .lines span:nth-child(4) { transition-delay: 0.24s; }
+  .desc .lines a { color: #0b8a4a; text-decoration: underline; }
+  .desc.frame { outline: 1.5px dashed #5646cf; outline-offset: -1px; }
+  .screen.hidden-content .feed { opacity: 0; }
+  .feed { transition: opacity 0.3s; }
+  .jump {
+    position: absolute; right: 10px; top: 50%; font: 700 11px/1 var(--mono); color: #fff; background: #c8363b;
+    padding: 5px 7px; border-radius: 6px; opacity: 0; transform: scale(0.8); transition: all 0.25s;
+  }
+  .jump.on { opacity: 1; transform: none; }
+  .phone-note { font-size: 12.5px; color: var(--muted); text-align: center; max-width: 260px; }
+
+  footer { color: var(--muted); font-size: 13px; max-width: 90ch; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 0.01ms !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">React Native New Architecture · Fabric</span>
+    <h1>How a TurboHtmlView row gets its height before the first frame</h1>
+    <p class="lede">Follow one Explore feed row from a React render to pixels. The row's description is a <code>TurboHtmlView</code>; its C++ ShadowNode answers Yoga's size question during layout, so the native view is created at the right height and only draws. Flip the switch to see the same frame when the view can't measure itself.</p>
+  </header>
+
+  <div class="controls" role="group" aria-label="Animation controls">
+    <button class="btn" id="prev" aria-label="Previous step">◀ Prev</button>
+    <button class="btn primary" id="play">▶ Play</button>
+    <button class="btn" id="next" aria-label="Next step">Next ▶</button>
+    <div class="steps" id="chips"></div>
+    <label class="mode"><input type="checkbox" id="mode"><span class="switch" aria-hidden="true"></span>Without a measuring ShadowNode</label>
+    <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+  </div>
+
+  <section class="caption" aria-live="polite">
+    <span class="where" id="cap-where"></span>
+    <h2 id="cap-title"></h2>
+    <p id="cap-text"></p>
+    <pre id="cap-code" hidden></pre>
+  </section>
+
+  <div class="stage">
+    <div class="lanes">
+      <!-- JS: React -->
+      <section class="lane js" id="lane-js">
+        <div class="lane-head">
+          <span class="lane-title"><span class="dot"></span>React render</span>
+          <span class="lane-thread">JS thread · Hermes</span>
+        </div>
+        <div class="tree">
+          <div class="node" data-show="1"><span class="name">&lt;ExploreItem item={…} /&gt;</span></div>
+          <div class="node indent-1" data-show="1"><span class="name">&lt;Text&gt;Coco Farm&lt;/Text&gt;</span></div>
+          <div class="node indent-1" data-show="1" data-hot="1"><span class="name">&lt;RichText html={item.description} /&gt;</span></div>
+          <div class="node indent-2" data-show="1" data-hot="1"><span class="name">&lt;TurboHtmlView html fontSize={14} lineHeight={21} /&gt;</span><span class="meta">props only, no size</span></div>
+        </div>
+      </section>
+
+      <div class="connector" id="c1"><span class="pkt" style="background:var(--js)"></span><span class="label">elements → ShadowNodes (JSI)</span></div>
+
+      <!-- C++: shadow tree + Yoga -->
+      <section class="lane cpp" id="lane-cpp">
+        <div class="lane-head">
+          <span class="lane-title"><span class="dot"></span>Shadow tree + Yoga layout</span>
+          <span class="lane-thread">C++ · JS thread</span>
+        </div>
+        <div class="tree">
+          <div class="node" data-show="2" data-hot="2 5"><span class="name">RootShadowNode</span><span class="badge size" data-size="root">w 402</span></div>
+          <div class="node indent-1" data-show="2" data-hot="3"><span class="name">ViewShadowNode · row</span><span class="badge size" data-size="row">? × ?</span></div>
+          <div class="node indent-2" data-show="2" data-hot="3"><span class="name">ParagraphShadowNode · title</span><span class="badge size" data-size="title">? × ?</span></div>
+          <div class="node indent-2" data-show="2" data-hot="3 4" id="turbo-node"><span class="name">TurboHtmlViewShadowNode <span class="meta">MeasurableYogaNode</span></span><span class="badge size" data-size="turbo">? × ?</span></div>
+        </div>
+        <div class="measure" id="measure">
+          <div class="row"><b>measureContent(maxWidth 370)</b> → <span>TurboHtmlMeasure(html, 370)</span></div>
+          <div class="phase"><span>scan HTML</span><span><i class="bar" data-w="6"></i></span><span>~6 µs</span></div>
+          <div class="phase"><span>build text</span><span><i class="bar" data-w="30"></i></span><span>~60 µs</span></div>
+          <div class="phase"><span>Core Text lines</span><span><i class="bar" data-w="100"></i></span><span>~190 µs</span></div>
+          <div class="row" id="measure-result"><span>returns</span><span class="badge size ok">370 × 84</span><span class="meta">4 lines × 21pt</span></div>
+          <div class="skipmsg" id="measure-skip" hidden>No measureContent: Yoga sees a plain View with no content size → height 0</div>
+        </div>
+      </section>
+
+      <div class="connector" id="c2"><span class="pkt" style="background:var(--cpp)"></span><span class="label">commit → diff → mutations</span></div>
+
+      <div class="cache" id="cache">
+        <span><b>RichTextEngine cache</b> <span class="meta">(html + style → document → layout per width)</span></span>
+        <span class="slot"><i id="slot-a"></i><i></i><i></i></span>
+        <span class="badge cache" id="cache-state">empty</span>
+      </div>
+
+      <div class="connector" id="c3"><span class="pkt" style="background:var(--ui)"></span><span class="label">mount on main thread</span></div>
+
+      <!-- Main: UIKit -->
+      <section class="lane ui" id="lane-ui">
+        <div class="lane-head">
+          <span class="lane-title"><span class="dot"></span>Mount + draw</span>
+          <span class="lane-thread">Main thread · UIKit</span>
+        </div>
+        <div class="mutations">
+          <span class="mut" data-show="5" data-apply="6">Create TurboHtmlView</span>
+          <span class="mut" data-show="5" data-apply="6">Insert into row</span>
+          <span class="mut" data-show="5" data-apply="6">UpdateProps (html, font…)</span>
+          <span class="mut" data-show="5" data-apply="6" id="mut-frame">UpdateLayout frame 370 × 84</span>
+          <span class="mut second" id="mut-second" hidden>2nd commit: setViewSize → frame 370 × 84</span>
+        </div>
+        <div class="tree">
+          <div class="node" data-show="6" data-hot="6"><span class="name">TurboHtmlView <span class="meta">RCTViewComponentView</span></span><span class="badge size" data-size="native">—</span></div>
+          <div class="node indent-1" data-show="6" data-hot="7"><span class="name">TurboHtmlCanvas.drawRect</span><span class="badge" id="draw-badge">cache hit · CTLineDraw</span></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="phone-col">
+      <div class="phone" aria-label="Phone preview of the feed row">
+        <div class="screen hidden-content" id="screen">
+          <div class="status"><i></i></div>
+          <div class="feed">
+            <div class="img"></div>
+            <div class="row-title">Coco Farm</div>
+            <div class="row-loc">Kandal, Cambodia · 38.6 km</div>
+            <div class="desc" id="desc">
+              <div class="lines">
+                <span>A green farm with fresh air, great</span>
+                <span>for families and friends. Open daily,</span>
+                <span>food and kids' playground on site.</span>
+                <span>Call <a>012 345 678</a> to book.</span>
+              </div>
+            </div>
+            <div class="img next"></div>
+          </div>
+          <span class="jump" id="jump">row jumps ↓</span>
+        </div>
+      </div>
+      <p class="phone-note" id="phone-note">Nothing is on screen until the main thread mounts the committed tree.</p>
+    </div>
+  </div>
+
+  <footer>Timings are from the package's benchmark on a Mac for a 702-character Khmer + English description; a phone is slower, but the order of work is the same. On Android the same C++ ShadowNode calls Kotlin (StaticLayout) through <code>FabricUIManager.measure</code> instead of Objective-C++ Core Text.</footer>
+</div>
+
+<script>
+(() => {
+  const STEPS = [
+    { where: "JS thread · React", lane: "js", chip: "Render",
+      title: "React renders the row",
+      text: "ExploreItem returns elements. <RichText> becomes a <TurboHtmlView> host element that only carries props: the HTML string, font size and line height. No width, no height.",
+      code: "<TurboHtmlView html={item.description} fontSize={14} lineHeight={21} />",
+      noText: null },
+    { where: "C++ · JS thread", lane: "cpp", chip: "Shadow tree",
+      title: "Fabric builds the shadow tree",
+      text: "Each host element becomes an immutable C++ ShadowNode holding its parsed props. TurboHtmlViewShadowNode is our own class: it declares LeafYogaNode + MeasurableYogaNode, so Yoga must ask it for a size.",
+      code: "traits.set(ShadowNodeTraits::Trait::LeafYogaNode);\ntraits.set(ShadowNodeTraits::Trait::MeasurableYogaNode);",
+      noText: "Without a custom ShadowNode (Nitro / plain view): the node is a plain ConcreteViewShadowNode. Yoga will size it from style only." },
+    { where: "C++ · Yoga", lane: "cpp", chip: "Layout",
+      title: "Yoga lays out the tree",
+      text: "Yoga walks down with the available width: the row gets 370pt, the title is measured by RN's own ParagraphShadowNode. When it reaches TurboHtmlViewShadowNode it can't know the height from style, so it calls measureContent.",
+      code: "Size measureContent(const LayoutContext&, const LayoutConstraints& c) // c.maximumSize.width = 370",
+      noText: "Yoga reaches the TurboHtmlView node, finds no measure function and no height in style: the node gets height 0." },
+    { where: "C++ → Objective-C++ · JS thread", lane: "cpp", chip: "measureContent",
+      title: "measureContent computes the real height",
+      text: "The ShadowNode calls TurboHtmlMeasure with the HTML bytes and the exact width. It scans the HTML, builds the styled text and breaks lines with Core Text, off the main thread. The finished layout is stored in the cache and the height goes back to Yoga: 84pt.",
+      code: "TurboHtmlMeasure(props.html.c_str(), len, font, 14, 21, lines, phones, /*width*/ 370, scale, &used) // → 84",
+      noText: "Skipped. Nothing asks the native side for a height, so the frame will say 0 until the view fixes it after mount." },
+    { where: "C++ · commit", lane: "cpp", chip: "Commit",
+      title: "The tree is committed and diffed",
+      text: "The laid-out tree is sealed and compared with the previous one. The result is a short list of mutations for the main thread, and the description's frame is already 370 × 84.",
+      code: "Create · Insert · UpdateProps · UpdateLayout { width: 370, height: 84 }",
+      noText: "Same mutations, but UpdateLayout carries height 0 for the description." },
+    { where: "Main thread · UIKit", lane: "ui", chip: "Mount",
+      title: "The main thread mounts native views",
+      text: "UIKit applies the mutations: it creates (or reuses from the recycling pool) a TurboHtmlView, inserts it, passes props and sets the frame. The row appears with its final height on the very first frame.",
+      code: "[_canvas setHTML:… fontSize:14 lineHeight:21 …]; // frame already 370 × 84",
+      noText: "The view mounts at height 0: the image below sits right under the title." },
+    { where: "Main thread · draw", lane: "ui", chip: "Draw",
+      title: "The canvas only draws",
+      text: "drawRect looks up the same (html, style, width) in the cache: a hit in ~0.3 µs. The main thread just issues CTLineDraw for each line and fills the underline rects. No parsing or line breaking happens on the main thread.",
+      code: "auto layout = RichTextEngine::shared().layout(html, style, 370, 0); // cache hit\nCTLineDraw(line, context);",
+      noText: "The view has to lay the text out itself, on the main thread (~190 µs), then report its height back (setViewSize). That triggers a second layout + commit, and the row visibly jumps." }
+  ];
+
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const chipsEl = $("#chips");
+  STEPS.forEach((s, i) => {
+    const b = document.createElement("button");
+    b.className = "step-chip";
+    b.type = "button";
+    b.innerHTML = `<b>${i + 1}</b>${s.chip}`;
+    b.addEventListener("click", () => { stop(); go(i + 1); });
+    chipsEl.appendChild(b);
+  });
+
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let step = 1;
+  let noMeasure = false;
+  let timer = null;
+  let barAnim = null;
+  const STEP_MS = 4200;
+
+  function sizes(n) {
+    const turboH = noMeasure ? (n >= 7 ? "84 (late)" : "0") : "84";
+    return {
+      root: "w 402",
+      row: n >= 3 ? (noMeasure && n < 7 ? "370 × 46" : "370 × 130") : "? × ?",
+      title: n >= 3 ? "370 × 21" : "? × ?",
+      turbo: n >= 4 || (noMeasure && n >= 3) ? `370 × ${turboH}` : "? × ?",
+      native: n >= 6 ? `370 × ${noMeasure ? (n >= 7 ? "84" : "0") : "84"}` : "—"
+    };
+  }
+
+  function render() {
+    const s = STEPS[step - 1];
+    $("#cap-where").textContent = `Step ${step} of ${STEPS.length} · ${s.where}`;
+    $("#cap-where").style.color = `var(--${s.lane})`;
+    $("#cap-title").textContent = s.title;
+    $("#cap-text").textContent = noMeasure && s.noText ? s.noText : s.text;
+    const code = $("#cap-code");
+    code.hidden = !s.code || (noMeasure && step === 4);
+    code.textContent = s.code || "";
+
+    $$(".step-chip").forEach((c, i) => {
+      c.classList.toggle("current", i + 1 === step);
+      c.classList.toggle("done", i + 1 < step);
+      c.setAttribute("aria-current", i + 1 === step ? "step" : "false");
+    });
+
+    ["js", "cpp", "ui"].forEach((l) => $(`#lane-${l}`).classList.toggle("live", s.lane === l));
+
+    $$("[data-show]").forEach((el) => el.classList.toggle("on", step >= Number(el.dataset.show)));
+    $$("[data-hot]").forEach((el) => el.classList.toggle("hot", el.dataset.hot.split(" ").map(Number).includes(step)));
+    $$("[data-apply]").forEach((el) => el.classList.toggle("applied", step >= Number(el.dataset.apply)));
+
+    const sz = sizes(step);
+    $$("[data-size]").forEach((el) => {
+      const key = el.dataset.size;
+      el.textContent = sz[key];
+      const measured = !el.textContent.includes("?") && el.textContent !== "—";
+      el.classList.toggle("ok", measured && !(noMeasure && /× 0|late/.test(el.textContent)));
+      el.classList.toggle("bad", measured && noMeasure && /× 0|late/.test(el.textContent));
+    });
+
+    // measureContent panel
+    const m = $("#measure");
+    m.classList.toggle("on", step >= 4 || (noMeasure && step >= 3));
+    m.classList.toggle("skip", noMeasure);
+    $("#measure-skip").hidden = !noMeasure;
+    $("#measure-result").hidden = noMeasure;
+    $$(".measure .phase").forEach((p) => (p.hidden = noMeasure));
+    $$(".measure .bar").forEach((b) => (b.style.width = !noMeasure && step >= 4 ? b.dataset.w + "%" : "0"));
+
+    // connectors
+    $("#c1").classList.toggle("flow", step === 2);
+    $("#c2").classList.toggle("flow", step === 5 || step === 4);
+    $("#c3").classList.toggle("flow", step === 6);
+
+    // cache
+    const filled = !noMeasure && step >= 4;
+    const lateFill = noMeasure && step >= 7;
+    $("#slot-a").classList.toggle("fill", filled || lateFill);
+    $("#slot-a").classList.toggle("read", !noMeasure && step === 7);
+    $("#cache-state").textContent = noMeasure ? (step >= 7 ? "filled on main thread" : "empty") : step >= 7 ? "hit · 0.3 µs" : step >= 4 ? "stored" : "empty";
+    $("#cache-state").style.color = noMeasure && step >= 7 ? "var(--warn)" : "";
+    $("#cache-state").style.borderColor = noMeasure && step >= 7 ? "var(--warn)" : "";
+
+    // mutations
+    $("#mut-frame").textContent = `UpdateLayout frame 370 × ${noMeasure ? 0 : 84}`;
+    $("#mut-second").hidden = !(noMeasure && step >= 7);
+    $("#draw-badge").textContent = noMeasure ? "layout on main · ~190 µs" : "cache hit · CTLineDraw";
+    $("#draw-badge").style.color = noMeasure ? "var(--warn)" : "var(--hit)";
+    $("#draw-badge").style.borderColor = noMeasure ? "var(--warn)" : "var(--hit)";
+
+    // phone
+    const screen = $("#screen");
+    const desc = $("#desc");
+    screen.classList.toggle("hidden-content", step < 6);
+    const h = step < 6 ? 0 : noMeasure ? (step >= 7 ? 84 : 0) : 84;
+    desc.style.height = h + "px";
+    desc.classList.toggle("drawn", step >= 7);
+    desc.classList.toggle("frame", step === 6 && !noMeasure);
+    $("#jump").classList.toggle("on", noMeasure && step >= 7);
+    $("#phone-note").textContent =
+      step < 6
+        ? "Nothing is on screen until the main thread mounts the committed tree."
+        : noMeasure
+          ? step >= 7
+            ? "Frame 2: the view reported 84pt after mount, so the row below jumps down."
+            : "Frame 1: mounted at height 0, text not laid out yet."
+          : step >= 7
+            ? "First frame: text drawn from the cache at the height Yoga already knew."
+            : "The frame (dashed) is already 84pt tall before any drawing.";
+  }
+
+  function go(n) {
+    step = Math.max(1, Math.min(STEPS.length, n));
+    render();
+  }
+
+  function animateBar() {
+    const bar = $("#bar");
+    if (barAnim) barAnim.cancel();
+    if (reduce || !timer) { bar.style.width = (step / STEPS.length) * 100 + "%"; return; }
+    barAnim = bar.animate([{ width: "0%" }, { width: "100%" }], { duration: STEP_MS, easing: "linear" });
+  }
+
+  function tick() {
+    go(step >= STEPS.length ? 1 : step + 1);
+    animateBar();
+  }
+
+  function play() {
+    if (timer) return;
+    $("#play").textContent = "❚❚ Pause";
+    timer = setInterval(tick, STEP_MS);
+    animateBar();
+  }
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+    $("#play").textContent = "▶ Play";
+    animateBar();
+  }
+
+  $("#play").addEventListener("click", () => (timer ? stop() : play()));
+  $("#prev").addEventListener("click", () => { stop(); go(step - 1); });
+  $("#next").addEventListener("click", () => { stop(); go(step + 1); });
+  $("#mode").addEventListener("change", (e) => { noMeasure = e.target.checked; render(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.target.closest("input, textarea")) return;
+    if (e.key === "ArrowRight") { stop(); go(step + 1); }
+    if (e.key === "ArrowLeft") { stop(); go(step - 1); }
+    if (e.key === " ") { e.preventDefault(); timer ? stop() : play(); }
+  });
+
+  // Rest state shows the finished pipeline (useful for thumbnails); autoplay restarts from step 1.
+  go(STEPS.length);
+  if (!reduce) setTimeout(() => { go(1); play(); }, 1600);
+  else animateBar();
+})();
+</script>
+
+</body>
+</html>

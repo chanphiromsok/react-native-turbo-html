@@ -108,6 +108,8 @@ on iOS without a re-render.
 
 ## Architecture
 
+An animated walkthrough of the pipeline (render → shadow tree → Yoga `measureContent` → commit → mount → draw, with a toggle showing the row jump without a measuring ShadowNode) is in [`docs/shadow-node-pipeline.html`](docs/shadow-node-pipeline.html) — open it in a browser.
+
 ```
 JS (render only)                 Yoga layout (JS/bg thread)              Main thread
 ────────────────                 ──────────────────────────              ───────────
