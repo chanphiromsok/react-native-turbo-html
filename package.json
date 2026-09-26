@@ -1,6 +1,6 @@
 {
   "name": "react-native-turbo-html",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "render a html paragraph from  html string",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
